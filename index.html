@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RepoLens — repo health at a glance</title>
+<meta name="description" content="Paste a public GitHub repo URL and get an instant health score: activity, docs, license, issue load." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F7F7F4;
+    --paper-dim:#EFEFEA;
+    --ink:#22241F;
+    --ink-soft:#5B5D54;
+    --line:#DCDCD3;
+    --add:#1A7F37;
+    --add-bg:#E9F5EC;
+    --del:#C4432E;
+    --del-bg:#FBEAE6;
+    --link:#3A5BA0;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Newsreader', Georgia, serif;
+    line-height:1.5;
+  }
+  .mono{font-family:'JetBrains Mono', ui-monospace, monospace;}
+  .wrap{
+    max-width:720px;
+    margin:0 auto;
+    padding:64px 24px 96px;
+  }
+  header h1{
+    font-size:clamp(2rem, 5vw, 2.6rem);
+    font-weight:600;
+    margin:0 0 6px;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    color:var(--ink-soft);
+    font-size:1.05rem;
+    margin:0 0 40px;
+    max-width:46ch;
+  }
+  form{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:14px 16px;
+  }
+  form .prompt{
+    color:var(--ink-soft);
+    font-size:0.95rem;
+    white-space:nowrap;
+  }
+  form input{
+    flex:1;
+    border:none;
+    outline:none;
+    font-size:0.95rem;
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    background:transparent;
+    color:var(--ink);
+    min-width:0;
+  }
+  form input::placeholder{ color:#A9AA9F; }
+  form button{
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.85rem;
+    padding:9px 16px;
+    border-radius:4px;
+    cursor:pointer;
+    transition:opacity 0.15s ease;
+  }
+  form button:hover{ opacity:0.82; }
+  form button:disabled{ opacity:0.5; cursor:default; }
+
+  .hint{
+    margin-top:10px;
+    font-size:0.85rem;
+    color:var(--ink-soft);
+  }
+  .hint button{
+    background:none;
+    border:none;
+    color:var(--link);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.85rem;
+    cursor:pointer;
+    padding:0;
+    text-decoration:underline;
+    text-underline-offset:2px;
+  }
+
+  #error{
+    display:none;
+    margin-top:24px;
+    padding:14px 16px;
+    background:var(--del-bg);
+    border:1px solid #EACAC3;
+    border-radius:6px;
+    color:var(--del);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.85rem;
+  }
+
+  #result{ display:none; margin-top:48px; }
+
+  .repo-id{
+    font-size:1.5rem;
+    font-weight:500;
+    margin:0 0 2px;
+  }
+  .repo-desc{
+    color:var(--ink-soft);
+    font-size:0.98rem;
+    margin:0 0 28px;
+  }
+
+  .score-row{
+    display:flex;
+    align-items:baseline;
+    gap:16px;
+    margin-bottom:8px;
+  }
+  .score-num{
+    font-size:4rem;
+    font-weight:600;
+    line-height:1;
+    letter-spacing:-0.02em;
+  }
+  .score-label{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+  }
+  .score-bar{
+    height:6px;
+    width:100%;
+    background:var(--paper-dim);
+    border-radius:3px;
+    overflow:hidden;
+    margin:18px 0 40px;
+  }
+  .score-bar-fill{
+    height:100%;
+    background:var(--ink);
+    border-radius:3px;
+    transition:width 0.6s ease;
+  }
+
+  .diffstat{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.85rem;
+    border-top:1px solid var(--line);
+  }
+  .diffstat-row{
+    display:grid;
+    grid-template-columns: 20px 1fr 130px;
+    align-items:center;
+    gap:14px;
+    padding:12px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .diffstat-row .mark{ font-weight:700; }
+  .diffstat-row .mark.pass{ color:var(--add); }
+  .diffstat-row .mark.fail{ color:var(--del); }
+  .diffstat-row .label{ color:var(--ink); }
+  .diffstat-row .detail{ color:var(--ink-soft); text-align:right; font-size:0.78rem; }
+
+  .stats-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+    margin:32px 0;
+  }
+  .stat{
+    background:var(--paper);
+    padding:16px 14px;
+  }
+  .stat .n{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:1.3rem;
+    font-weight:600;
+  }
+  .stat .l{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.7rem;
+    color:var(--ink-soft);
+    margin-top:2px;
+  }
+
+  .langs{ margin-top:36px; }
+  .langs h3{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.78rem;
+    font-weight:500;
+    color:var(--ink-soft);
+    margin:0 0 12px;
+    text-transform:none;
+  }
+  .lang-bar{
+    display:flex;
+    height:10px;
+    border-radius:3px;
+    overflow:hidden;
+    margin-bottom:10px;
+  }
+  .lang-legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.78rem;
+    color:var(--ink-soft);
+  }
+  .lang-legend span.dot{
+    display:inline-block;
+    width:8px;height:8px;
+    border-radius:50%;
+    margin-right:6px;
+  }
+
+  footer{
+    margin-top:64px;
+    padding-top:20px;
+    border-top:1px solid var(--line);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:0.78rem;
+    color:var(--ink-soft);
+  }
+
+  @media (max-width:480px){
+    .stats-grid{ grid-template-columns:repeat(2,1fr); }
+    .diffstat-row{ grid-template-columns: 16px 1fr 90px; }
+    form{ flex-wrap:wrap; }
+  }
+
+  :focus-visible{ outline:2px solid var(--link); outline-offset:2px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>RepoLens</h1>
+      <p>Paste a public GitHub repository and get an instant read on its health — docs, upkeep, and how it treats issues.</p>
+    </header>
+
+    <form id="form">
+      <span class="prompt mono">repo/</span>
+      <input id="repoInput" type="text" placeholder="facebook/react  or  a full github.com URL" autocomplete="off" />
+      <button id="submitBtn" type="submit">analyze</button>
+    </form>
+    <div class="hint">try <button type="button" class="ex" data-repo="vercel/next.js">vercel/next.js</button> or <button type="button" class="ex" data-repo="torvalds/linux">torvalds/linux</button></div>
+
+    <div id="error"></div>
+
+    <div id="result">
+      <p class="repo-id mono" id="repoId"></p>
+      <p class="repo-desc" id="repoDesc"></p>
+
+      <div class="score-row">
+        <div class="score-num" id="scoreNum">—</div>
+        <div class="score-label mono">HEALTH<br/>SCORE / 100</div>
+      </div>
+      <div class="score-bar"><div class="score-bar-fill" id="scoreBarFill" style="width:0%"></div></div>
+
+      <div class="diffstat" id="checks"></div>
+
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <div class="langs" id="langsWrap">
+        <h3>languages</h3>
+        <div class="lang-bar" id="langBar"></div>
+        <div class="lang-legend" id="langLegend"></div>
+      </div>
+    </div>
+
+    <footer>built with the public GitHub API · no auth, no backend · <span id="rateNote"></span></footer>
+  </div>
+
+<script>
+const form = document.getElementById('form');
+const input = document.getElementById('repoInput');
+const btn = document.getElementById('submitBtn');
+const errorBox = document.getElementById('error');
+const result = document.getElementById('result');
+
+document.querySelectorAll('.ex').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    input.value = b.dataset.repo;
+    form.dispatchEvent(new Event('submit'));
+  });
+});
+
+// Auto-load from ?repo=owner/name so results can be shared as a direct link
+const params = new URLSearchParams(window.location.search);
+const repoParam = params.get('repo');
+if(repoParam){
+  input.value = repoParam;
+  form.dispatchEvent(new Event('submit'));
+}
+
+function parseRepo(raw){
+  let s = raw.trim();
+  s = s.replace(/^https?:\/\/(www\.)?github\.com\//i, '');
+  s = s.replace(/\.git$/i, '').replace(/\/$/, '');
+  const parts = s.split('/').filter(Boolean);
+  if(parts.length < 2) return null;
+  return { owner: parts[0], repo: parts[1] };
+}
+
+const LANG_COLORS = {
+  JavaScript:'#E8C547', TypeScript:'#3A7CA5', Python:'#4B8B3B', Java:'#B8542A',
+  Go:'#3AAFA9', Rust:'#C4432E', C:'#5B5D54', 'C++':'#8E5A9E', 'C#':'#5B8930',
+  Ruby:'#C4432E', PHP:'#6A6FA8', HTML:'#D97757', CSS:'#3A5BA0', Shell:'#5B5D54',
+  Swift:'#D97757', Kotlin:'#8E5A9E', Vue:'#4B8B3B'
+};
+function colorFor(lang, i){
+  return LANG_COLORS[lang] || ['#B8542A','#3A7CA5','#4B8B3B','#8E5A9E','#C4432E','#3AAFA9'][i % 6];
+}
+
+function daysAgo(dateStr){
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+}
+
+async function fetchJSON(url){
+  const res = await fetch(url, { headers:{ 'Accept':'application/vnd.github+json' } });
+  if(res.status === 403){ throw new Error('GitHub API rate limit hit — wait a minute and try again.'); }
+  if(res.status === 404){ throw new Error('Repo not found. Check the owner/name and that it\'s public.'); }
+  if(!res.ok){ throw new Error('GitHub API error (' + res.status + ')'); }
+  return res.json();
+}
+
+async function analyze(owner, repo){
+  const base = 'https://api.github.com/repos/' + owner + '/' + repo;
+  const [meta, langs] = await Promise.all([
+    fetchJSON(base),
+    fetchJSON(base + '/languages')
+  ]);
+
+  let hasReadme = true;
+  try { await fetchJSON(base + '/readme'); } catch(e){ hasReadme = false; }
+
+  const pushDays = daysAgo(meta.pushed_at);
+  const hasLicense = !!meta.license;
+  const hasDescription = !!(meta.description && meta.description.trim().length > 0);
+  const openIssues = meta.open_issues_count || 0;
+  const stars = meta.stargazers_count || 0;
+  const issueRatio = stars > 0 ? openIssues / stars : (openIssues > 0 ? 1 : 0);
+  const isArchived = meta.archived;
+
+  const checks = [
+    { label:'Has a README', pass: hasReadme, detail: hasReadme ? 'found' : 'missing' },
+    { label:'Has a license', pass: hasLicense, detail: hasLicense ? meta.license.spdx_id : 'none' },
+    { label:'Has a description', pass: hasDescription, detail: hasDescription ? 'yes' : 'empty' },
+    { label:'Pushed to recently', pass: pushDays <= 90, detail: pushDays + 'd ago' },
+    { label:'Issue load manageable', pass: issueRatio < 0.15, detail: openIssues + ' open / ' + stars + ' stars' },
+    { label:'Not archived', pass: !isArchived, detail: isArchived ? 'archived' : 'active' },
+  ];
+
+  const passCount = checks.filter(c=>c.pass).length;
+  const score = Math.round((passCount / checks.length) * 100);
+
+  return { meta, langs, checks, score };
+}
+
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  errorBox.style.display = 'none';
+  const parsed = parseRepo(input.value);
+  if(!parsed){
+    errorBox.textContent = 'Enter a repo like "owner/name" or a github.com URL.';
+    errorBox.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'analyzing…';
+  result.style.display = 'none';
+
+  try{
+    const { meta, langs, checks, score } = await analyze(parsed.owner, parsed.repo);
+
+    document.getElementById('repoId').textContent = meta.full_name;
+    document.getElementById('repoDesc').textContent = meta.description || 'No description provided.';
+    document.getElementById('scoreNum').textContent = score;
+    document.getElementById('scoreBarFill').style.width = score + '%';
+
+    const checksHTML = checks.map(c => `
+      <div class="diffstat-row">
+        <span class="mark ${c.pass?'pass':'fail'}">${c.pass?'+':'−'}</span>
+        <span class="label">${c.label}</span>
+        <span class="detail">${c.detail}</span>
+      </div>
+    `).join('');
+    document.getElementById('checks').innerHTML = checksHTML;
+
+    const stats = [
+      { n: meta.stargazers_count.toLocaleString(), l:'STARS' },
+      { n: meta.forks_count.toLocaleString(), l:'FORKS' },
+      { n: meta.open_issues_count.toLocaleString(), l:'OPEN ISSUES' },
+      { n: daysAgo(meta.pushed_at) + 'd', l:'SINCE LAST PUSH' },
+    ];
+    document.getElementById('statsGrid').innerHTML = stats.map(s=>`
+      <div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>
+    `).join('');
+
+    const total = Object.values(langs).reduce((a,b)=>a+b,0);
+    const langEntries = Object.entries(langs).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    if(total > 0 && langEntries.length){
+      document.getElementById('langsWrap').style.display = 'block';
+      document.getElementById('langBar').innerHTML = langEntries.map(([lang,bytes],i)=>{
+        const pct = (bytes/total*100);
+        return `<div style="width:${pct}%; background:${colorFor(lang,i)}"></div>`;
+      }).join('');
+      document.getElementById('langLegend').innerHTML = langEntries.map(([lang,bytes],i)=>{
+        const pct = (bytes/total*100).toFixed(1);
+        return `<span><span class="dot" style="background:${colorFor(lang,i)}"></span>${lang} ${pct}%</span>`;
+      }).join('');
+    } else {
+      document.getElementById('langsWrap').style.display = 'none';
+    }
+
+    result.style.display = 'block';
+  } catch(err){
+    errorBox.textContent = err.message || 'Something went wrong.';
+    errorBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'analyze';
+  }
+});
+</script>
+</body>
+</html>
