@@ -22,3 +22,4 @@ Just open `index.html` in a browser — no build step, no dependencies.
 
 Uses the unauthenticated GitHub API, which is rate-limited to 60 requests/hour per IP. Fine for demo use; add a personal access token header for heavier use.
 <!-- test -->
+<!-- linked -->
